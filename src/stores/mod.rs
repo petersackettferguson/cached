@@ -7,11 +7,13 @@ use std::hash::Hash;
 #[cfg(feature = "async")]
 use {super::CachedAsync, async_trait::async_trait, futures::Future};
 
+mod lirs;
 mod sized;
 mod timed;
 mod timed_sized;
 mod unbound;
 
+pub use lirs::LirsCache;
 pub use sized::SizedCache;
 pub use timed::TimedCache;
 pub use timed_sized::TimedSizedCache;
