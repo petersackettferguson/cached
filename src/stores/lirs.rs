@@ -77,36 +77,35 @@ where
 {
 }
 
-impl<K: Hash + Eq + Clone, V> SizedCache<K, V> {
+impl<K: Hash + Eq + Clone, V> LirsCache<K, V> {
     #[deprecated(since = "0.5.1", note = "method renamed to `with_size`")]
-    pub fn with_capacity(size: usize) -> SizedCache<K, V> {
-        Self::with_size(size)
-    }
-
-    /// Creates a new `SizedCache` with a given size limit and pre-allocated backing data
-    pub fn with_size(size: usize) -> SizedCache<K, V> {
-        if size == 0 {
-            panic!("`size` of `SizedCache` must be greater than zero.")
+    /// Creates a new `LirsCache` with given size limits and pre-allocated backing data
+    pub fn with_sizes(lir_size: usize, hir_size: usize) -> LirsCache<K, V> {
+        if lir_size == 0 || hir_size == 0 {
+            panic!("`lir_size` and 'hir_size' of `LirsCache` must be greater than zero.")
         }
-        SizedCache {
-            store: RawTable::with_capacity(size),
+        LirsCache {
+            lir_store: RawTable::with_capacity(lir_size),
+            hir_store: RawTable::with_capacity(hir_size),
             hash_builder: RandomState::new(),
-            order: LRUList::<(K, V)>::with_capacity(size),
-            capacity: size,
+            lir_order: LRUList::<(K, V)>::with_capacity(lir_size),
+            hir_order: LRUList::<(K, V)>::with_capacity(hir_size),
+            lir_capacity: lir_size,
+            hir_capacity: hir_size,
             hits: 0,
             misses: 0,
         }
     }
 
-    /// Creates a new `SizedCache` with a given size limit and pre-allocated backing data
-    pub fn try_with_size(size: usize) -> std::io::Result<SizedCache<K, V>> {
-        if size == 0 {
+    /// Creates a new `LirsCache` with given size limits and pre-allocated backing data
+    pub fn try_with_size(lirs_size: usize, hirs_size: usize) -> std::io::Result<SizedCache<K, V>> {
+        if lir_size == 0 || hir_size == 0 {
             // EINVAL
             return Err(std::io::Error::from_raw_os_error(22));
         }
 
-        let store = match RawTable::try_with_capacity(size) {
-            Ok(store) => store,
+        let lir_store = match RawTable::try_with_capacity(lir_size) {
+            Ok(store) => lir_store,
             Err(e) => {
                 let errcode = match e {
                     // ENOMEM
@@ -118,11 +117,27 @@ impl<K: Hash + Eq + Clone, V> SizedCache<K, V> {
             }
         };
 
-        Ok(SizedCache {
-            store,
+        let hir_store = match RawTable::try_with_capacity(hir_size) {
+            Ok(hir_store) => hir_store,
+            Err(e) => {
+                let errcode = match e {
+                    // ENOMEM
+                    hashbrown::TryReserveError::AllocError { .. } => 12,
+                    // EINVAL
+                    hashbrown::TryReserveError::CapacityOverflow => 22,
+                };
+                return Err(std::io::Error::from_raw_os_error(errcode));
+            }
+        };
+
+        Ok(LirsCache {
+            lir_store,
+            hir_store,
             hash_builder: RandomState::new(),
-            order: LRUList::<(K, V)>::with_capacity(size),
-            capacity: size,
+            lir_order: LRUList::<(K, V)>::with_capacity(lir_size),
+            hir_order: LRUList::<(K, V)>::with_capacity(hir_size),
+            lir_capacity: lir_size,
+            hir_capacity: hir_size,
             hits: 0,
             misses: 0,
         })
@@ -132,6 +147,8 @@ impl<K: Hash + Eq + Clone, V> SizedCache<K, V> {
         self.order.iter()
     }
 
+    // TODO: best order?
+    /*
     /// Return an iterator of keys in the current order from most
     /// to least recently used.
     pub fn key_order(&self) -> impl Iterator<Item = &K> {
@@ -143,6 +160,7 @@ impl<K: Hash + Eq + Clone, V> SizedCache<K, V> {
     pub fn value_order(&self) -> impl Iterator<Item = &V> {
         self.order.iter().map(|(_k, v)| v)
     }
+    */
 
     fn hash(&self, key: &K) -> u64 {
         let hasher = &mut self.hash_builder.build_hasher();
@@ -150,6 +168,7 @@ impl<K: Hash + Eq + Clone, V> SizedCache<K, V> {
         hasher.finish()
     }
 
+    //TODO: begin work here
     fn insert_index(&mut self, hash: u64, index: usize) {
         let Self {
             ref mut store,
